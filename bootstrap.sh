@@ -1,7 +1,6 @@
 #!/bin/bash
-set -x #debugging
 # 2019'10, gokhan@kylone.com
-# FROM https://github.com/uboreas/centos-8-minimal/tree/a59b3a53d844ae859801b39117aebbcdb5bce3e2
+
 #
 # Evironment variables
 #
@@ -12,12 +11,13 @@ set -x #debugging
 #
 # Default values
 #
-# official ISO to use
+# default official ISO to use
 iso="CentOS-8.1.1911-x86_64-boot.iso"
 #
-# resulting ISO file name
-out="$(echo "${iso}" | awk -F"x86_64" {'print $1"x86_64"'})-minimal.iso"
-lbl="$(echo "${iso}" | awk -F"x86_64" {'print $1"x86_64"'} | sed 's/\./\-/g')"
+# resulting ISO file name and volume label
+# such values will be determined again according to source image during ISO mount
+out="CentOS-8.1.1911-x86_64-minimal.iso"
+lbl="CentOS-8-1-1911-x86_64"
 #
 # dependency resolving method
 # deep: check dependency of every package one by one
@@ -127,16 +127,6 @@ function cmisomount() {
          exit
       fi
    fi
-   if [ "${CMISO}" != "" ]; then
-      ver="$(cat "${md}/isolinux/isolinux.cfg" | grep "LABEL=CentOS" | head -1 | awk -F"LABEL=CentOS-" {'print $2'} | awk -F"-x86_64" {'print $1'} | sed 's/\-/\./g')"
-      if [ "${ver}" == "8.BaseOS" ]; then
-         ver="8.0.1905"
-      elif [ "${ver}" == "Stream.8" ]; then
-         ver="8.0.20191219"
-      fi
-      out="CentOS-${ver}-x86_64-minimal.iso"
-      lbl="CentOS-$(echo "${ver}" |sed 's/\./\-/g')-x86_64"
-   fi
 }
 
 function cmclean() {
@@ -167,12 +157,6 @@ function cmcreatetemplate() {
    cp "templ_media.repo" "${dp}/media.repo"
    echo -n "."
    cp -r "${md}/isolinux" "${dp}/"
-   sed -i "s/\\(inst.stage2=hd:LABEL=\\)[a-Z0-9\\_\\-]\\+/\\1${lbl}/g" "${dp}/isolinux/isolinux.cfg"
-   sed -i "s/\\(-l '\\)[a-Z0-9\\_\\-]\\+\\('\\)/\\1${lbl}\\2/g" "${dp}/EFI/BOOT/BOOT.conf"
-   sed -i "s/\\(inst.stage2=hd:LABEL=\\)[a-Z0-9\\_\\-]\\+/\\1${lbl}/g" "${dp}/EFI/BOOT/BOOT.conf"
-   sed -i "s/\\(-l '\\)[a-Z0-9\\_\\-]\\+\\('\\)/\\1${lbl}\\2/g" "${dp}/EFI/BOOT/grub.cfg"
-   sed -i "s/\\(inst.stage2=hd:LABEL=\\)[a-Z0-9\\_\\-]\\+/\\1${lbl}/g" "${dp}/EFI/BOOT/grub.cfg"
-   cmcheck
    echo -n "."
    cp -r "${md}/images" "${dp}/"
    cmcheck
@@ -328,6 +312,7 @@ function cmrpmdownload() {
       echo 
       exit 1
    fi
+   mkdir -p rpms
    yumdownloader --urls "${@}" 2>/dev/null | \
       grep "^http" | \
       sort | uniq | \
@@ -370,6 +355,7 @@ function rpmdownload() {
             grep "^http" | \
             sort | uniq)"
    fi
+   mkdir -p rpms
    echo "${ul}" | while read u; do
       if [ "${u}" != "" ]; then
          f=`echo "${u}" | awk -F"/" {'print $NF'}`
@@ -440,8 +426,9 @@ function cmcollectrpm() {
    fi
    cmrpmurl "${@}"
    dl="$(cat "${pw}/.urls")"
-   rr="$(echo "${dl}" | awk -F"/" {'print $NF'} | sed 's/\.i686/\.x86_64/g' | sort | uniq)"
+   rr="$(echo "${dl}" | awk -F"/" {'print $NF'} | sort | uniq)"
    if [ "${rr}" != "" ]; then
+      mkdir -p rpms
       echo "${rr}" | while read r; do
          if [ -e "rpms/${r}" ]; then
             if [ -d "${bo}/Packages" ]; then
@@ -564,6 +551,16 @@ function cmcreateiso() {
       echo
       exit 1
    fi
+   lbl="$(cat "${dp}/isolinux/isolinux.cfg" | grep "LABEL=" | awk -F"LABEL=" {'print $2'} | awk {'print $1'} | grep -v "^$" | head -1 | tr -d "\n\r")"
+   if [ "${CMOUT}" == "" ]; then
+      ver="$(cat "${dp}/isolinux/isolinux.cfg" | grep "LABEL=CentOS" | head -1 | awk -F"LABEL=CentOS-" {'print $2'} | awk -F"-x86_64" {'print $1'} | sed 's/\-/\./g')"
+      if [ "${ver}" == "8.BaseOS" ]; then
+         ver="8.0.1905"
+      elif [ "${ver}" == "Stream.8" ]; then
+         ver="8.0.20191219"
+      fi
+      out="CentOS-${ver}-x86_64-minimal.iso"
+   fi
    echo " ~ Creating ISO image"
    cd "${dp}"
    chmod 664 isolinux/isolinux.bin
@@ -584,7 +581,7 @@ function cmcreateiso() {
       cmcheck
    if [ -e "/usr/bin/isohybrid" ]; then
       echo " ~ ISO hybrid"
-      isohybrid "${pw}/${out}" | cmdot
+      isohybrid --uefi "${pw}/${out}" | cmdot
       cmcheck
    fi
    if [ -e "/usr/bin/implantisomd5" ]; then
@@ -656,7 +653,7 @@ if [ ! -e "/usr/bin/repoquery" -o ! -e "/usr/bin/createrepo" -o ! -e "/usr/bin/y
    echo " ! Some additional packages needs to be installed."
    echo "   Please run following command to have them all:"
    echo
-   echo "   yum -y install yum-utils createrepo syslinux genisoimage isomd5sum bzip2 curl"
+   echo "   yum -y install yum-utils createrepo syslinux genisoimage isomd5sum bzip2 curl file"
    echo
    exit 1
 fi
