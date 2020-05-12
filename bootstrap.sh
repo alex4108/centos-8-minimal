@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x #debugging
 # 2019'10, gokhan@kylone.com
 # FROM https://github.com/uboreas/centos-8-minimal/tree/a59b3a53d844ae859801b39117aebbcdb5bce3e2
 #
